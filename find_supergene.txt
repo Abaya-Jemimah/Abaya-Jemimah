@@ -1,0 +1,152 @@
+#userlogin
+ssh j.abaya@141.89.108.125
+
+#password
+zing
+
+##go to ddrad
+cd /mnt/barn/j.abaya/ddRAD/
+
+##how to go to another directory eg from find_supergene_douglasiana to ddrad
+
+cd ../
+
+#create new directory
+mkdir find_supergene_douglasiana
+ 
+#go into new directory
+cd find_supergene_douglasiana
+##copy the reference genome file to the current directory
+
+cp /mnt/barn/j.abaya/ddRAD/mapping_douglasiana/douglasiana_asm.dominant_allele_like.fa .
+
+##install sexdelim2; a pipeline to delimit sex-linked regions in chromosome-scale genome assemblies, using re-sequencing data of males and females. 
+
+##wait first install conda
+wget https://repo.anaconda.com/miniconda/Miniconda3-py37_4.10.3-Linux-x86_64.sh
+bash Miniconda3-py37_4.10.3-Linux-x86_64.sh
+
+conda config --set auto_activate_base false
+
+##check if conda and its contents are there
+conda init
+
+###add to the conda stuff in text editor after opening the conda file (.condrc)
+
+pkgs_dirs:
+ - /mnt/barn/j.abaya/.conda
+repodata_threads: 4
+
+###add stuff
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+
+
+#set up conda environment 
+conda create --name sexdelim --file sexdelim2.txt
+
+##go to ddrad
+cd /mnt/barn/j.abaya/ddRAD/
+ 
+#go into the directory
+cd find_supergene_douglasiana
+
+#clone the repo
+git clone https://github.com/mscharmann/sexdelim2
+
+#go into that directory
+
+cd sexdelim2
+
+#set up a new conda environment 
+conda create --name sexdelim --file sexdelim2.txt
+
+##to get other accessories
+wget -P scripts https://gist.githubusercontent.com/travc/0c53df2c8eca81c3ebc36616869930ec/raw/eff3032ca7c955ca33bffd8758092e4006949c75/split_ref_by_bai_datasize.py
+
+##to use the sexdelim, first activate the conda environment
+conda activate sexdelim
+
+##to test the program
+
+snakemake -j24 --keep-going --rerun-incomplete
+
+
+
+###files required to run the program 
+1) genome fasta file; scaffolds_chromosome_douglasiana
+2) popmap.txt (make in excel)
+3) samples_units_readfiles.txt" (make in excel)
+
+##for lodlimit 20 
+
+##for the real data edit the config.yaml file for lodlimit 20
+## 1) how to Make a genome fasta file (called scaffolds_chromosome_douglasiana) with all the agp files;scaffolds_chr1.agp and reference genome;douglasiana_asm.dominant_allele_like.fa"
+
+##for chromosome 1
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa scaffolds_chr1.agp >scaffolds_chromosome_douglasiana.fa
+
+##for chromosome 2
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa scaffolds_chr2.agp >>scaffolds_chromosome_douglasiana.fa
+
+##for chromosome 3
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa scaffolds_chr3.agp >>scaffolds_chromosome_douglasiana.fa
+
+##for chromosome 4
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa scaffolds_chr4.agp >>scaffolds_chromosome_douglasiana.fa
+
+##for chromosome 5
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa scaffolds_chr5.agp >>scaffolds_chromosome_douglasiana.fa
+
+##for chromosome 6
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa scaffolds_chr6.agp >>scaffolds_chromosome_douglasiana.fa
+
+##copy file to current directory
+cp /mnt/barn/j.abaya/ddRAD/lepanchor_douglasiana_lodlimit20/scaffolds_chromosome_douglasiana3.fa .
+
+#####to get the other files (popmap and samples_units_readfiles.txt) in excel
+
+#go to the file location eg cd demultiplexed_douglasiana then get the file and copy and paste in excel
+
+
+"/mnt/barn/j.abaya/ddRAD/find_supergene_douglasiana/sexdelim2/data/scaffolds_chromosome_douglasiana.fa"
+
+#to get the forward reads to paste in excel
+ls -l *F.fq
+
+#to get the reverse reads to paste in excel
+ls -l *R.fq
+#############################################################################################################
+to check if its complete with all the chromosomes
+
+seqtk comp scaffolds_chromosome_douglasiana2.fa
+
+
+#####to make one agp file
+
+cat chr1.agp chr2.agp chr3.agp chr4.agp chr5.agp chr6.agp >chromosome_douglasiana_all.agp
+
+###make a fasta with the combined file
+
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa  chromosome_douglasiana_all.agp >scaffolds_chromosome_douglasiana2.fa
+
+#######
+
+cp /mnt/barn/j.abaya/ddRAD/lepanchor_douglasiana_lodlimit3/scaffolds_chromosome_douglasiana2.fa"
+
+###### how to make the bed file
+
+seqtk comp data/scaffolds_chromosome_douglasiana2.fa | awk '{{if($2>1000000) print $1"\t0\t"$2}}' > big_chromosomes_douglasiana.bed
+
+###edit the file names on config.yaml
+
+###run actual code after activating conda
+
+###make a screen 
+screen -S find_supergene_douglasiana
+
+####actual code
+
+snakemake -j74 --keep-going --rerun-incomplete
+

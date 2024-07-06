@@ -1,0 +1,234 @@
+mkdir -p ~/miniconda3
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
+bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+rm -rf ~/miniconda3/miniconda.sh
+
+
+~/miniconda3/bin/conda init bash
+
+# add this to ~/.condarc
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+
+# prevent autoactivate
+conda config --set auto_activate_base false
+
+###new code
+
+- installing conda POTSDAM:
+
+
+cd /mnt/barn/mscharmann/tools
+wget https://repo.anaconda.com/miniconda/Miniconda3-py37_4.10.3-Linux-x86_64.sh
+
+bash Miniconda3-py37_4.10.3-Linux-x86_64.sh
+
+# install location:
+/mnt/barn/mscharmann/tools/miniconda3
+
+# add this to PATH
+export PATH="/home/j.abaya/miniconda3/bin:$PATH"
+
+conda init
+
+# add these lines to new $HOME/.condarc
+auto_activate_base: false
+pkgs_dirs:
+ - /mnt/barn/mscharmann/tools/.conda
+repodata_threads: 4
+
+##
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+
+
+conda update -n base -c defaults conda
+
+
+
+
+###
+conda create --name ddrad
+
+
+##to instal stuff use
+conda install bwa
+##check the cheat sheet
+
+##to start bwa
+
+conda activate ddrad
+
+##make directory for mapping
+mkdir mapping_douglasiana
+##to get the reference genome for douglasiana
+ 
+cp /mnt/barn/mscharmann/Amsinckia_PacBio_genome_asms.2023-03/douglasiana.separate_S-locus_haplotypes.2023-08/douglasiana_asm.dominant_allele_like.fa .
+
+mkdir mapping_furcata
+cp /mnt/barn/mscharmann/Amsinckia_PacBio_genome_asms.2023-03/furcata.separate_S-locus_haplotypes.2023-08/furcata_asm.dominant_allele_like.fa .
+
+##create an index for the reference genome in a screen. 
+
+bwa index (fasta file with the genomes)
+
+
+
+## bwa finds possible alignments
+
+# filtering alignments to be primary (i.e. each read only once; if multiple locations equally possible than a random one is chosen ...we need just only one):
+
+# -F 256 == -F 0x0100 == NOT not primary alignment
+
+# samtools -q 1  # minim-mapping quality of 1, removes unmapped and multi-mapping reads by filtering
+
+##map with bwamem then filter with samtools and then its compressed for one 
+
+reference=test.fa (put the reference genome i need)
+
+SAMPLE=test (put the demultiplex files)
+
+bwa mem -t 12 -a $reference $SAMPLE.F.fq.gz $SAMPLE.R.fq.gz -R "@RG\tID:${SAMPLE}\tSM:${SAMPLE}tPL:Illumina" | samtools view -F 256 -q 1 -b -@ 2 - > $SAMPLE.bam
+
+##to sort the files to make it arranged
+samtools sort -T ${SAMPLE} -O bam $SAMPLE.bam > $SAMPLE.sorted.bam
+
+#makes reading the file efficient
+samtools index $SAMPLE.sorted.bam
+
+##remove the unsorted file
+rm $SAMPLE.bam
+
+##samtools view to view stuff
+
+samtools view $SAMPLE.sorted.bam
+##create a variable with the needed files
+
+####start
+ssh j.abaya@141.89.108.208
+
+#password
+zing
+
+#change directory
+cd /mnt/barn/j.abaya
+cd ddRAD
+
+##to activate conda
+conda activate ddrad
+
+##do actual stuff for douglasiana
+
+##to make files from names with only column 4 (do for furcta too)
+
+grep douglasiana species_samples_libs_barcodes_all.2023-09-01.txt | cut -f4 >names_douglasiana 
+
+##start the mapping in a screen
+
+screen -S bwa
+
+reference=mapping_douglasiana 
+#create an index for bwa
+reference=mapping_douglasiana/douglasiana_asm.dominant_allele_like.fa
+#to print the contents of reference variable
+echo $reference
+
+
+##to make files from names with only column 4 (do for furcta too)
+grep douglasiana species_samples_libs_barcodes_all.2023-09-01.txt | cut -f4 >names_douglasiana 
+
+#to make a variable that contains a list to loop over
+list_to_loop_over=$( cat names_douglasiana )
+
+ 
+
+for sample in $list_to_loop_over ; do
+	echo $sample.F.fq.gz $sample.R.fq.gz
+bwa mem -t 40 -a $reference demultiplexed_samples_all_douglasiana/$sample.F.fq.gz demultiplexed_samples_all_douglasiana/$sample.R.fq.gz -R "@RG\tID:${sample}\tSM:${sample}\tPL:Illumina" | samtools view -F 256 -q 1 -b -@ 2 - > $sample.bam
+samtools sort -T ${sample} -O bam $sample.bam > mapping_douglasiana/$sample.sorted.bam
+samtools index mapping_douglasiana/$sample.sorted.bam
+rm $sample.bam
+done 
+
+#find the reads that have mapped
+
+list_to_loop_over=$( cat names_douglasiana )
+
+ for sample in $list_to_loop_over ; do
+
+samtools flagstats mapping_douglasiana/$sample.sorted.bam | grep total >> mapping_douglasiana/mapping_report.txt
+
+done 
+
+#to get only total reads with sample names
+
+paste names_douglasiana mapping_douglasiana/mapping_report.txt > real_mapping_report_douglasiana.txt
+
+
+
+##to open igv
+#if its not in the conda environment do 
+conda activate ddrad
+##to open igv
+igv
+
+###furcata
+
+
+##to activate conda
+conda activate ddrad
+
+##do actual stuff for furcata
+
+##to make files from names with only column 4 (do for furcta too)
+
+grep furcata species_samples_libs_barcodes_all.2023-09-01.txt | cut -f4 >names_furcata 
+
+
+##start the mapping in a screen 
+
+screen -S bwa2
+
+#create an index for bwa
+reference=mapping_furcata/furcata_asm.dominant_allele_like.fa
+
+#to print the contents of reference variable
+echo $reference
+
+
+#to make a variable that contains a list to loop over
+list_to_loop_over=$( cat names_furcata )
+
+##main loop for everything
+
+for sample in $list_to_loop_over ; do
+	echo $sample.F.fq.gz $sample.R.fq.gz
+bwa mem -t 40 -a $reference demultiplexed_samples_all_furcata/$sample.F.fq.gz demultiplexed_samples_all_furcata/$sample.R.fq.gz -R "@RG\tID:${sample}\tSM:${sample}\tPL:Illumina" | samtools view -F 256 -q 1 -b -@ 2 - > $sample.bam
+samtools sort -T ${sample} -O bam $sample.bam > mapping_furcata/$sample.sorted.bam
+samtools index mapping_furcata/$sample.sorted.bam
+rm $sample.bam
+done 
+
+
+#find the reads that has mapped and put this into a file
+
+list_to_loop_over=$( cat names_furcata )
+
+ for sample in $list_to_loop_over ; do
+
+samtools flagstats mapping_furcata/$sample.sorted.bam | grep total >> mapping_furcata/mapping_report.txt
+
+done 
+
+##to count the amount of bam files
+ls -l mapping_furcata/*bam |wc -l
+
+
+#to get only total reads with sample names
+
+paste names_furcata mapping_furcata/mapping_report.txt > real_mapping_report_furcata.txt
+
+

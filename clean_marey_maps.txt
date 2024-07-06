@@ -1,0 +1,135 @@
+###################################################
+# Final evaluation of recombination along given physical order
+###################################################
+
+
+### how to interpret the "recombination distance" on these Marey maps?
+https://sourceforge.net/p/lep-anchor/discussion/general/thread/7395fafcf7/
+"""
+The Marey map Lep-Anchor plots y axis as the number of recombinations, you get an average recombination rate (in cM) if you multiply the numbers by 50/M (100/(2M)), where M is number of offspring in your data.
+
+Typically I evaluate the map in the physical order in order to get the recombination rate. 
+"""
+
+
+----> so the final step, after establishing the physical order, is to use Lep-Map3 "OrderMarkers2 evaluateOrder=order.phys improveOrder=0" which will evaluate the recombination events one more time with the order fixed ("evaluate the map in the physical order in order to get the recombination rate").
+
+https://sourceforge.net/p/lep-anchor/wiki/Home/#create-physical-marker-order-for-final-validation-and-for-other-purposes-for-lep-map3
+
+## setup and inputs:
+- for each chrom: AGP, order with genome coordinates
+
+
+
+##### preparing to run ordermarkers2 with NEW physical order
+
+
+cd /mnt/barn/j.abaya/ddRAD/clean_mareymaps_douglasiana_lodlimit20
+
+for X in 1 2 3 4 5 6 ; do
+cp ../lepanchor_douglasiana_lodlimit3/chr$X.agp .
+done
+
+
+cp ../lepanchor_douglasiana_lodlimit20/liftover.awk .
+
+# First, create file with snp names
+zcat ../lepanchor_douglasiana_lodlimit20/data.gz | awk '(NR>=7){print $1"\t"$2}' >snps.txt
+
+
+
+# rename 9 to 6
+ln -s ../lepanchor_douglasiana_lodlimit20/order.9.txt
+tail -n +4 order.9.txt > order.6.noheader.txt
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR!=FNR){$1=map[$1] "\t" n;print}' snps.txt order.6.noheader.txt > order.6.genomic_coords_of_markers.txt
+
+
+# order with genome coordinates for all files
+for X in 1 2 3 4 5 6 ; do
+ln -s ../lepanchor_douglasiana_lodlimit20/order.$X.txt
+tail -n +4 order.$X.txt > order.$X.noheader.txt
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR!=FNR){$1=map[$1] "\t" n;print}' snps.txt order.$X.noheader.txt > order.$X.genomic_coords_of_markers.txt
+done
+
+
+## get the 'initial' genetic map = first column of the output of LepMap JoinSingles OR LepMap SeparateChromosomes2
+
+#map file as used for order markers(input for order markers)
+#because this file contains the assignment of each marker to an LG OR unassigned (0). --> markers NOT on the LGs in this file witll NOT be evaluated in the next step.
+
+
+path to map file:"/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/map_no_JoinSingles2All.txt"
+
+##### run LepMap OrderMarkers2 to re-evaluate genetic order along NEW physical order
+
+jcp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+for lg in {1..6} ; do
+
+awk -f liftover.awk chr${lg}.agp order.${lg}.genomic_coords_of_markers.txt|sort -V|grep LG >order${lg}.liftover
+awk -vinverse=1 -f liftover.awk chr${lg}.agp order${lg}.liftover|awk '(NR==FNR){m[$1"\t"($2+0)]=NR-1}(NR!=FNR){print m[$1"\t"($2+0)]}' snps.txt - >order${lg}.phys
+
+zcat ../lepanchor_douglasiana_lodlimit20/data.gz | java -cp $jcp OrderMarkers2 numThreads=24 data=- evaluateOrder=order${lg}.phys improveOrder=0 hyperPhaser=1 phasingIterations=3 map=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/map_no_JoinSingles2All.txt chromosome=${lg} >order${lg}.eval
+
+done
+
+##### reformat .eval for import to R (bring back together physical and the NEW genetic positions)
+
+for lg in {1..6} ; do
+tail -n +4 order${lg}.eval > tmp
+awk -vn=${lg} '(NR==FNR){map[NR-1]=$0}(NR!=FNR){$1=map[$1] "\t" n;print}' snps.txt tmp > tmp2
+awk -f liftover.awk chr${lg}.agp tmp2|sort -V|grep LG | awk 'BEGIN{OFS="\t";} {print $1,$2,$4,$5,$9}' > FINAL_EVAL.recombination_along_given_physical_order.${lg}.txt
+rm tmp tmp2
+done
+
+
+# FINAL plot in R (open nano and paste it there if its not already there)
+
+###name of nano file; plot_Marey_final.R
+
+########## now plot in R.: plot_Marey_final.R
+
+
+library(ggplot2)
+
+args = commandArgs(trailingOnly=TRUE)
+
+mydata <- read.table(args[1], sep = "\t", header = F, stringsAsFactors = FALSE)
+
+colnames(mydata) <- c("LG","pos","p1","p2","haplotypes")
+
+reshaped_data <- data.frame(rbind(cbind(mydata$pos,mydata$p1,"p1"),cbind(mydata$pos,mydata$p2,"p2")))
+colnames(reshaped_data) <- c("physical","genetic","parent")
+reshaped_data$physical <- as.numeric(as.character( reshaped_data$physical ))
+reshaped_data$genetic <- as.numeric(as.character( reshaped_data$genetic ))
+reshaped_data$parent <- factor(as.character( reshaped_data$parent ))
+
+
+reshaped_data$genetic <- reshaped_data$genetic # * (50/192) # DANGER this is a dataset-specific attempt to convert genetic units to cM
+reshaped_data$physical <- reshaped_data$physical/1000000
+
+
+myplot <- ggplot(data=reshaped_data, aes(x=physical, y=genetic, colour = parent)) +
+	theme_classic() +
+	geom_point(size=0.2) +
+	theme(strip.background = element_blank()) +
+	theme(axis.text.x = element_text(colour = "black")) +
+	theme(axis.text.y = element_text(colour = "black")) +
+	xlab("physical position [Mbp]") +
+	ylab("genetic position") +
+	ggtitle(mydata$LG[1]) +
+	theme(legend.position = c(0.1, 0.8))
+	
+	
+pdf(paste(args[1],".Marey_plot.pdf",sep=""), width = 4, height = 3) # # A4 size print measures 8.27 x 11.69 inches ; 2/3 A4 width = 2.64 inch
+plot(myplot)
+dev.off()
+
+
+###### actual command
+
+for lg in {1..6} ; do
+Rscript plot_Marey_final.R FINAL_EVAL.recombination_along_given_physical_order.${lg}.txt
+done
+
+#########
+

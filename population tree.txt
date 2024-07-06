@@ -1,0 +1,68 @@
+
+
+
+cd /mnt/barn/j.abaya/ddRAD/
+conda activate ddrad
+
+
+##link to convert VCF to Stockholm format
+
+wget https://raw.githubusercontent.com/mscharmann/tools/master/vcf_to_stockholm.py
+
+###############################################################################
+
+########For douglasiana#########################################
+
+
+##real command for the conversion of vcf to Stockholm format
+
+python vcf_to_stockholm.py --vcf douglasiana_fitering_final_step.recode.vcf
+
+#After  running the result was sequences: 192, sites: 109886 and proportion gap: 0.0867. produced a stockholm file called;  douglasiana_fitering_final_step.recode.vcf.sth
+
+###the phylogeny tree
+rapidnj douglasiana_fitering_final_step.recode.vcf.sth -n -o t -a kim -c 12 -m 10000 -t d -b 10 -x  douglasiana_fitering_final_step.recode.vcf.rapidNJ_tree.tre
+
+########For furcata#########################################
+
+
+##real command for the conversion of vcf to Stockholm format
+
+python vcf_to_stockholm.py --vcf furcata_fitering_final_step.recode.vcf
+
+##sequences: 191, sites: 155807 and proportion gap: 0.0978
+
+##the phylogeny tree
+rapidnj furcata_fitering_final_step.recode.vcf.sth -n -o t -a kim -c 40 -m 10000 -t d -b 100 -x  furcata_fitering_final_step.recode.vcf.rapidNJ_tree.tre
+
+
+##convert vcf to stockholm (easier command)
+vcf=furcata_fitering_final_final_step.recode.vcf
+
+python vcf_to_stockholm.py --vcf $vcf
+
+##the phylogeny tree
+rapidnj $vcf.sth -n -o t -a kim -c 12 -m 10000 -t d -b 10 -x $vcf.rapidNJ_tree.tre
+
+
+##############################################################################
+
+################### RAPIDNJ Neighbor Joining Tree
+conda install rapidnj
+
+##link to convert phylip to stockholm format
+wget https://raw.githubusercontent.com/mscharmann/Nepenthes_speciation_genomics/master/rapidNJ_smartPCA_fastSTRUCTURE/phylip2stockholm.py
+
+##link to convert vcf to phylip format
+wget https://raw.githubusercontent.com/mscharmann/Nepenthes_speciation_genomics/master/rapidNJ_smartPCA_fastSTRUCTURE/vcf_to_phylip.py
+
+##conversion commands
+vcf=../furcata_fitering_final_step.recode.vcf
+python2.7 vcf_to_phylip.py --vcf ${vcf}
+
+python2.7 phylip2stockholm.py ${vcf}.phylip.txt
+
+rapidnj ${vcf}.phylip.txt.sth -n -o t -a kim -c 12 -m 10000 -t d -b 100 -x ${vcf}.rapidNJ_tree.txt
+
+
+

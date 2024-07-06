@@ -1,0 +1,105 @@
+
+#where to find it ;
+
+https://sourceforge.net/p/lep-anchor/wiki/Home/#creating-alignment-chains-for-haplotype-removal
+
+##install minimap2
+conda install minimap2
+
+### environment location: /home/j.abaya/miniconda3/minimap2
+
+##activate minimap in conda
+conda activate minimap2
+
+##go to directory
+/mnt/barn/j.abaya/ddRAD/maplodlim27_joint_singles_lodlim20/lepanchor_douglasiana
+
+######Creating alignment chains for haplotype removal
+use minimap2, implemented in a new wrapper lepanchor_chain.sh:
+
+##copy the reference genome file to the current directory
+cp /mnt/barn/j.abaya/ddRAD/mapping_douglasiana/douglasiana_asm.dominant_allele_like.fa .
+
+#zip the file
+pigz -p 12 douglasiana_asm.dominant_allele_like.fa
+
+##outputfile= douglasiana_asm.dominant_allele_like.fa.gz
+
+###do a screen 
+screen -S allign
+conda activate minimap2
+
+###command to run with minimap
+
+ln -s /mnt/barn/j.abaya/.conda/minimap2-2.17-h5bf99c6_4/
+
+
+./lepanchor_chain.sh -t 52 -f douglasiana_asm.dominant_allele_like.fa.gz
+#### error;awk: paf2chain.awk:8: fatal: cannot open file `ref-self_sorted.paf' for reading: No such file or directory
+Error: Could not find or load main class paf=ref-self.paf
+
+#####maybe if i manually create an empty file named; ref-self_sorted.paf and try again ####################
+
+
+######## or ##########################################################################################################
+minimap2 -t 40 -x asm20 douglasiana_asm.dominant_allele_like.fa.gz douglasiana_asm.dominant_allele_like.fa.gz > ref-self.paf
+cp=mnt/barn/j.abaya/ddRAD/maplodlim27_joint_singles_lodlim20/lepanchor_douglasiana/bin/
+java -cp mnt/barn/j.abaya/ddRAD/maplodlim27_joint_singles_lodlim20/lepanchor_douglasiana/bin/ ChainPaf paf=ref-self.paf|awk -f sortpaf.awk| sort -T . -n -r -k 1,1 | #cut -f 2- > ref-self_sorted.paf
+awk -f paf2chain.awk ref-self_sorted.paf | gzip > paf.chain.gz
+
+#####failed at the last point and gave the same error messege; error;awk: paf2chain.awk:8: fatal: cannot open file `ref-self_sorted.paf' for reading: No such file or directory
+Error: Could not find or load main class paf=ref-self.paf
+
+#####maybe if i manually create an empty file named; ref-self_sorted.paf and try again ####################
+
+##first copy the modified version into the current directory (if its a new directory)
+cp /mnt/barn/mscharmann/A_spectabilis_genetic_map.2022-07/final.2022-09-15/lepanchor/lepanchor_wrapper2.Mathias_mod.sh .
+
+###do the lepanchor wrapper with the chain.file)
+
+./lepanchor_wrapper2.Mathias_mod.sh -t 48 -T 12 -f douglasiana_asm.dominant_allele_like.fa -c (add the .chain.gz file) -n 6 -m map_with_all_LGs.txt
+
+
+########################################################################
+
+
+################### FIND SUPERGENE ####################################
+
+##HOW TO MAKE THE GENOME SCAFFOLDING FILE
+
+#####to make one combined agp file
+
+cat chr1.agp chr2.agp chr3.agp chr4.agp chr5.agp chr6.agp >chromosome_douglasiana_all.agp
+
+###make a fasta with the combined file
+
+awk -f makefasta.awk douglasiana_asm.dominant_allele_like.fa  chromosome_douglasiana_all.agp >scaffolds_chromosome_douglasiana2.fa
+
+#########to check if its complete with all the chromosomes
+seqtk comp scaffolds_chromosome_douglasiana2.fa
+
+###go back to the sexdelim/data directory 
+cd "/mnt/barn/j.abaya/ddRAD/find_supergene_douglasiana_lodlim27_jointsingleslodlim20/sexdelim2/data/"
+
+##copy the scaffolds files i made to the data directory
+cp "/mnt/barn/j.abaya/ddRAD/maplodlim27_joint_singles_lodlim20/lepanchor_douglasiana/scaffolds_chromosome_douglasiana2.fa" .
+
+### go to a screen 
+screen -S F2_lodlim20
+
+##Activate conda
+conda activate sexdelim
+
+###go back to sexdelim directory
+cd "/mnt/barn/j.abaya/ddRAD/find_supergene_douglasiana_lodlim27_jointsingleslodlim20/sexdelim2/"
+
+#### RUN THE actual code #############
+
+snakemake -j74 --keep-going --rerun-incomplete
+
+####go back to screen to check
+screen -r F2_lodlim20
+
+
+###return screen
+screen -r allign

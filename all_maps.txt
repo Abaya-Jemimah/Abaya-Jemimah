@@ -1,0 +1,173 @@
+## do not ibnstall through conda, because conda resolves for hours and hours .... NOT A GOOD OPTION.
+
+# trying install with pip as per the jcvi github:
+https://github.com/tanghaibao/jcvi
+
+#######START HERE##########################################
+
+
+
+# create some new conda env and only install python into it.
+conda create --name jcvi python -y
+
+##to go into the environment just i created
+conda activate jcvi
+
+# install jcvi using pip:
+
+pip install jcvi
+
+
+#####jcvi location: /home/j.abaya/miniconda3/envs/jcvi/lib/python3.12/site-packages
+
+
+## OK it works!
+
+######## NO, lets give ALLMAPS a shot, since its already installed... (inside JCVI)
+
+
+https://github.com /tanghaibao/jcvi/wiki/ALLMAPS
+
+
+#####MAKE A DIRECTORY FOR ALLMAPS DOUGLASIANA
+
+mkdir allmaps_douglasiana
+cd allmaps_douglasiana
+
+
+## Step 1. Prepare input data
+# bring genetic map (from LepMap output of ordermkers) into this CSV format:
+
+Scaffold ID, scaffold position, LG, genetic position
+
+##
+
+# get list of SNP positions , essentially from the VCF:
+
+#######DOUGLASIANA#########################
+
+### might be this file: douglasiana_for_genetic_mapping.recode.vcf
+
+
+###copy the files needed to current directory
+cp /mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/douglasiana_for_genetic_mapping.recode.vcf .
+
+cat douglasiana_for_genetic_mapping.recode.vcf | grep -v "#" | awk '{print $1"\t"$2}' >snps_coords_physical.txt
+wc -l snps_coords_physical.txt
+# 108631 
+
+####get linkage groups from lepmap
+
+ cp /mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/ordermarkers.Joinsingles_lodlimit20/order.1.txt .
+
+###do the same for order.2,3,4,5,9 
+
+
+# then stick all LGs together into one map file
+rm map_with_all_LGs.txt
+for X in {1..9} ; do
+tail -n +4 order.$X.txt > order.$X.noheader.txt
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR!=FNR) {$1=map[$1] "\t" n;print}' snps_coords_physical.txt order.$X.noheader.txt >> map_with_all_LGs.txt
+done
+
+cat map_with_all_LGs.txt | awk '{print $1","$2","$3","$4}' > map_with_all_LGs.for_ALLMAPS.csv
+
+
+# 2. merge maps (in case have multiple, or just run on 1 if have only 1)
+
+python -m jcvi.assembly.allmaps merge map_with_all_LGs.for_ALLMAPS.csv -o JM-2.bed
+
+###after this result shows A total of 28709 markers written to `JM-2.bed`.                                                                                                                            
+
+# 3. Run scaffold ordering, which takes the input bed file and original scaffold FASTA file.
+
+python -m jcvi.assembly.allmaps path --cpus=48 --ngen=100 JM-2.bed groups.asm.fasta
+
+##what is the original fasta file? reference genome.
+
+
+
+##############Map contains 28709 markers in 6 linkage groups.                                                                                                                             allmaps.py:538
+[06:58:11 PM] DEBUG    Retained 27,125 of 28,709 (94.5%) clean markers.
+
+### nono, not so simple; BEFORE the scaffolding, we certainly want to split contigs where they grossly disagree with the genetic map:
+# https://github.com/tanghaibao/jcvi/wiki/ALLMAPS:-How-to-split-chimeric-contigs
+
+# infer breakpoints where at least "chunk" markers fall onto a different LG
+python -m jcvi.assembly.allmaps split JM-2.bed --chunk=3 > breakpoints.bed
+
+#these coordinates are very rough, of course. We could do better by intersecting with the gaps in the assembly,
+# where most misjoins occur. The first command computes where the gaps are, the second command refines the
+# breakpoint by finding the largest gap in the breakpoint region.
+
+python -m jcvi.formats.fasta gaps groups.asm.fasta
+python -m jcvi.assembly.patch refine breakpoints.bed groups.asm.gaps.bed
+# yields breakpoints.groups.refined.bed
+
+# Once this is done, we create a new AGP file that specifies how to split the breakpoints exactly. Final command to rebuild the genome into genome.SPLIT.fasta.
+
+python -m jcvi.formats.sizes agp groups.asm.fasta
+# yields groups.asm.fasta.agp
+python -m jcvi.formats.agp mask groups.asm.fasta.agp breakpoints.groups.refined.bed --splitobject - -splitsingle
+# yields groups.asm.fasta.masked.agp
+python -m jcvi.formats.agp build groups.asm.fasta.masked.agp groups.asm.fasta genome.SPLIT.fasta
+# yields genome.SPLIT.fasta
+
+
+## # OK, now liftover for the VCF markers from BEFORE_SPLIT to AFTER_SPLIT
+using:
+- groups.asm.fasta.masked.agp # AGP file describing the splitting done
+- the two FASTA files (before and after splitting)
+
+
+python -m jcvi.formats. chain fromagp groups.asm.fasta.masked.agp groups.asm.fasta genome.SPLIT.fasta
+# yields: groups.asm.fasta.masked.chain
+
+CrossMap.py vcf groups.asm.fasta.masked.chain test.liftover. vcf genome.SPLIT.fasta test.liftover.after_allmaps_split.vcf
+
+# OK! worked.
+# 2023-11-07 04:47:03 [INFO] Total entries: 59884
+# 2023-11-07 04:47:03 [INFO] Failed to map: 0
+
+
+####### OK, now finally scaffold with ALLMAPS:
+- test.liftover.after_allmaps_split.vcf
+
+
+
+## Step 1. Prepare input data
+# bring genetic map (from LepMap) into this CSV format:
+
+Scaffold ID, scaffold position, LG, genetic position
+
+##
+
+bp=../A_spectabilis_genetic_map. 2022-07/final.2022-09-15
+
+# get list of SNP positions, essentially from the VCF:
+
+cat test.liftover.after_allmaps_split.vcf | grep -v "#" | awk '{print $1"\t"$2}' >snps_coords_physical.txt
+wc -l snps_coords_physical.txt
+# 59884
+
+# stick all LGs together into one map file
+rm map_with_all_LGs.txt
+for X in {1..5} ; do
+tail -n +4 $bp/order.$X.txt > order.$X.noheader.txt
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR! =FNR){$1=map[$1] "\t" n;print}' snps_coords_physical.txt order.$X.noheader.txt >> map_with_all_LGs.txt
+done
+
+cat map_with_all_LGs.txt | awk '{print $1","$2","$3","$4}' > map_with_all_LGs.for_ALLMAPS.csv
+
+# 2. merge maps (in case have multiple, or just run on 1 if have only 1)
+
+python -m jcvi .assembly.allmaps merge map_with_all_LGs.for_ALLMAPS.csv -o JM-2.bed
+
+# 3. Run scaffold ordering, which takes the input bed file and original scaffold FASTA file.
+
+python -m jcvi.assembly.allmaps path --cpus=48 --ngen=100 JM-2.bed genome.SPLIT.fasta
+
+### OK! it technically works, BUT clearly I still have many major disagreements between genetic map and the scaffolding result!!
+
+
+....> the sequence of "allmaps path" -> "allmaps split" -> "allmaps path" can be iterated..

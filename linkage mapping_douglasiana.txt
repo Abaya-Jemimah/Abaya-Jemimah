@@ -1,0 +1,656 @@
+################################Douglasiana####################################################
+
+info here:
+https://sourceforge.net/p/lep-map3/discussion/general/
+
+
+##enter new dirctory
+cd /mnt/barn/j.abaya/ddRAD/lepmap_douglasiana
+
+ln -s ../douglasiana_for_genetic_mapping.recode.vcf
+
+
+inputs:
+- pedigree file
+- genotypes
+- expectation: 6 linkage groups for the haploid n=6 karyotype.
+
+
+
+mkdir lepmap3 #(to hold all the lepmap scripts)
+cd lepmap3
+wget https://sourceforge.net/projects/lep-map3/files/binary%2Bcode.zip
+unzip 'binary+code.zip'
+
+## creating the pedgigree file, its structure is:
+"""
+The first 6 lines presents the pedigree. First line is the family name, second individual name, third and fourth are the father and mother. Line 5 containts the sex of each individual (1 male, 2 female, 0 unknown) and the last line is the phenotype (can be 0 for all individuals, this is not currently used). The likelihoods can be provided from line 7 forward (columns must match) or on a separate file given as parameter posteriorFile or vcfFile. Finally, columns 1-2 give marker names (scaffold and pos) for genotypes, and can be any value for pedigree part. Thus, make sure that each line has n+2 tab separated columns if there are n individuals and column i + 2 gives the genotype and pedigree information on individual i.
+"""
+
+-> this best made in excel. using a special format. then in transpose and convert to text file 
+
+bcftools query -l douglasiana_for_genetic_mapping.recode.vcf 
+
+# sanity check that all are there
+cat pedigree.douglasiana.txt | head -2 | tail -n 1 | tr "\t" "\n" | grep sample | sort | uniq > tmp1
+bcftools query -l douglasiana_for_genetic_mapping.recode.vcf | sort | uniq > tmp2
+comm tmp1 tmp2
+rm tmp1 tmp2
+
+#############
+
+
+########
+# 1. ParentCall2
+########
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+# First sanity-check that the pedigree is correctly readable
+java -classpath $cp ParentCall2 data=pedigree.douglasiana.txt
+
+
+cat douglasiana_for_genetic_mapping.recode.vcf | java -classpath $cp ParentCall2 data=pedigree.douglasiana.txt vcfFile=- removeNonInformative=1 halfSibs=1 | gzip > data.call.gz
+
+# Number of called markers = 92460 (92460 informative)
+
+
+########
+# 2. Filtering2
+########
+"""
+The Filtering2 module handles filtering of the data, i.e. filtering markers based on, e.g. high segregation distortion (dataTolerance) and excess number of missing genotypes (missingLimit). This module outputs the filtered data in the same format to be used with other modules and for further analysis (e.g. QTL mapping).
+
+Note that Filtering2 is best suited for multi-family data especially with default dataTolerance(=0.01). For single family data, distortionLod=1 in SeparateChromosomes2 and JoinSingles2All can provide a better solution to deal with distorted markers. This is because Filtering can cause long gaps on single family crosses. If filtering is used on such data, ofter a smaller dataTolerance is more suitable (like 0.001 or 0.0001). 
+"""
+
+"""
+for data with parents unknown:
+You can run Filtering2 directly on this data.
+"""
+
+zcat data.call.gz | java -classpath $cp Filtering2 data=- dataTolerance=0.001 missingLimit=0.9 removeNonInformative=1 | gzip > data_f.call.gz
+
+# Number of markers = 92460
+
+
+########
+# 3. SeparateChromosomes2
+########
+"""
+The SeparateChromosomes2 module assigns markers into linkage groups (LGs) by computing all pair-wise LOD scores between markers and joins markers that with LOD score higher than a user given parameter lodLimit. The output is a map file where line i (not commented by #) corresponds to marker i and gives its LG name (number).
+
+# The size distribution of linkage groups can be obtained like this:
+
+sort map5.txt | uniq -c | sort -n
+
+# If you get the snp names to a file snps.txt by
+
+awk '(NR>=7)' data_f.call|cut -f 1,2 >snps.txt
+
+# You can see the genomic coordinates of markers in each linkage group by
+
+paste snps.txt map5.txt|awk '($3>0)'
+"""
+
+
+"""
+HOW TO SET THE LOD threshold??
+
+must iterate over params similar to: doi: https://doi.org/10.1101/2021.10.18.464892
+We tested a range of 10 to 25 for LOD score thresholds (lodLimit) and evaluated the resulting number of linkage groups and the assignment distribution of markers to each linkage
+group. The LOD score thresholds were chosen based on variation in size between the largest
+linkage groups as well as the tail distribution of linkage group size (Rastas 2018). For each map,
+we chose the smallest LOD threshold at which the largest linkage groups were not further
+separated and increasing the threshold would instead add smaller linkage groups with few
+markers while the majority of markers remained in the largest groups.
+
+AND/OR reads through the Lep-Map3 forum keyword 
+https://sourceforge.net/p/lep-map3/discussion/search/?q=SeparateChromosomes2+parameters
+
+
+"""
+
+# LOD = logarithmic odds ratio. = log10-scaled probability of genetic linkage between two markers over random association. e.g. LOD 3 = 10^3 higher probability of genetic linkage than co-inheritance observed by chance.
+#######################main command######################################################
+##unzip first
+gunzip data_f.call.gz
+
+screen -S lepmap
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+rm number_of_LGs_versus_lodlim.txt
+for lodlim in 3 4 5 10 20 30 40 50 60 70 80 90 100 ; do
+
+java -classpath $cp SeparateChromosomes2 numThreads=46 data=data_f.call lodLimit=$lodlim distortionLod=1 sizeLimit=10 > map.lodlimit_$lodlim.txt
+
+# inspect results; the output is: number_of_markers_in_LG	LG_name
+sort map.lodlimit_$lodlim.txt | uniq -c | sort -n > markers_per_LG.$lodlim.txt
+
+nLGs=$(sort map.lodlimit_$lodlim.txt | uniq -c | sort -n | tail -n +2 | wc -l)
+echo $lodlim $nLGs >> number_of_LGs_versus_lodlim.txt
+
+done
+gzip data_f.call
+
+for lodlim in 3 4 5 10 20 30 40 50 60 70 80 90 100 ; do
+
+
+nLGs=$(sort map.lodlimit_$lodlim.txt | uniq -c | sort -n | tail -n +2 | awk '{if($1>1000)  print  }' | wc -l )
+echo $lodlim $nLGs >> number_of_LGs_versus_lodlim.min_LG_size_1000.txt
+
+done
+
+
+
+###################################
+# How much physical sequence (bp) / contigs are in my LGs? a sanity checking metric. (sum of base pairs of all the contigs in each linkage group) 
+####################################
+
+
+# get physical lengths of the contigs in bp:
+conda activate ddrad
+seqtk comp ../mapping_douglasiana/douglasiana_asm.dominant_allele_like.fa | awk '{print $1"\t"$2}' > genomefile.txt
+
+# If you get the snp names to a file snps.txt by
+
+zcat data_f.call.gz | awk '(NR>=7)' |cut -f 1,2 >snps.txt
+
+# You can see the genomic coordinates of markers in each linkage group by
+paste snps.txt map.lodlimit_30.txt|awk '($3>0)' > snps_assigned_to_LGs.txt
+
+##### estimate_physical_sizes_of_LGs.py
+# python
+
+import sys
+
+contig_sizes = {}
+with open("genomefile.txt", "r") as I:
+	for line in I:
+		fields = line.strip("\n").split("\t")
+		contig_sizes[fields[0]] = int(fields[1])
+
+
+contigs_to_LGs_dict = {}
+with open("snps_assigned_to_LGs.txt", "r") as I:
+	for line in I:
+		fields = line.strip("\n").split("\t")
+		try:
+			contigs_to_LGs_dict[fields[0]].append(fields[2])
+		except KeyError:
+			contigs_to_LGs_dict[fields[0]] = [fields[2]]
+
+
+
+# find out to in which Linkage Group(LG) the contiq that has the most markers was assigned to:
+LG_to_contigs = {}
+for k,v in contigs_to_LGs_dict.items():
+	candidate_lgs = list(set(v))
+	their_counts = []
+	for lg in candidate_lgs:
+		their_counts.append( v.count(lg) )
+	maxcount = max( [int(f) for f in their_counts ] )  
+	best_lg = candidate_lgs[ their_counts.index(maxcount) ]
+	try:
+		LG_to_contigs[best_lg].append(k)
+	except KeyError:
+		LG_to_contigs[best_lg] = [k]
+
+
+LG_sizes = {}
+for k,v in LG_to_contigs.items():
+	try:
+		LG_sizes[k] += sum([contig_sizes[i] for i in v])
+	except KeyError:
+		LG_sizes[k] = sum([contig_sizes[i] for i in v])
+
+
+
+outlines = []
+sorted_by_size = sorted(LG_sizes.items(), key=lambda x: x[1], reverse=True )
+
+
+for LG in sorted_by_size:
+	outlines.append( "\t".join([LG[0],str(LG[1]), str( round( float(LG[1]) / sum(list(LG_sizes.values())), 3)) ] ) )
+
+
+outlines.append( "total\t" + str( sum( list(LG_sizes.values()) ) ) )
+
+
+sys.stdout.write("\n".join(outlines)+"\n")
+
+###################################################################################
+##to find the plausible range. do this method 
+
+for lodlim in 3 4 5 10 20 30 40 50 60 70 80 90 100 ; do
+
+paste snps.txt map.lodlimit_$lodlim.txt | awk '($3>0)' > snps_assigned_to_LGs.txt
+echo "######" $lodlim
+python estimate_physical_sizes_of_LGs.py
+rm snps_assigned_to_LGs.txt
+done
+
+
+################################################################################
+OK, plausible lodlims are probably in the range 25-35, let's get these more fine-grained
+
+##check if zipped then unzip first
+gunzip data_f.call.gz
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+rm number_of_LGs_versus_lodlim.txt
+for lodlim in 25 26 27 28 29 30 31 32 33 34 35 38 ; do
+
+java -classpath $cp SeparateChromosomes2 numThreads=46 data=data_f.call lodLimit=$lodlim distortionLod=1 sizeLimit=10 > map.lodlimit_$lodlim.txt
+
+done
+
+##after this results shows, Number of LGs = 27, markers in LGs = 6394, singles = 78250
+
+##zip again
+gzip data_f.call
+
+##iterate seperate chromosomes over different lodlimits
+rm report.physical_sizes.txt
+for lodlim in 3 4 5 10 20 24 25 26 27 28 29 30 31 32 33 34 35 36 38 40 50 60 70 80 90 100 ; do
+
+paste snps.txt map.lodlimit_$lodlim.txt | awk '($3>0)' > snps_assigned_to_LGs.txt
+echo "######" $lodlim >> report.physical_sizes.txt
+python estimate_physical_sizes_of_LGs.py >> report.physical_sizes.txt
+rm snps_assigned_to_LGs.txt
+done
+
+##selected one (27) lodlimit based on the estimate of the size (bp) of all the linkage groups(sum total), and the relative distribution of these different sizes across each linkage group.  (fix this sentence) as there needs to be only 6 LG that are not completely different from each other in size.  
+###plot a chart using the report.physical_sizes with size in bp on the y-axis and the different lodlimits on the X-axis, showing the 6 contigis with the largest sizes.  
+
+###### 27
+1	158997376	0.266
+2	99954585	0.167
+4	80665380	0.135
+3	80020624	0.134
+5	78289028	0.131
+9	51100120	0.086
+
+
+
+################################################################################
+# JoinSingles2All
+################################################################################
+"""
+The JoinSingles2All module assigns singular markers to existing LGs by computing LOD scores between each single marker and markers from the existing LGs. It needs a map file as input parameter and then it outputs a new map file with possible more markers assigned to LGs.
+
+Example :
+
+java -cp bin/ JoinSingles2All map=map5.txt data=data_f.call lodLimit=4 >map5_js.txt
+zcat data_f.call.gz|java -cp bin/ JoinSingles2All map=map5.txt data=- lodLimit=3 lodDifference=2 >map5_js.txt
+(parameter numThreads utilises muliple cores)
+
+(iterated joinSingles2All yields same result as iterating it until no markers can be added)
+
+java -cp bin/ JoinSingles2All map=map5.txt data=data_f.call lodLimit=4 iterate=1 >map5_js_iterated.txt
+
+The size distribution of linkage groups can be obtained like this:
+
+cut -f 1 map5_js.txt|sort|uniq -c|sort -n
+"""
+
+# first, change the map so that the markers from undesired LGs are assigned as singles again:
+tail -n +2 map.lodlimit_27.txt | awk '{if($1 == 1 || $1 == 2 || $1 == 3 || $1 == 4 || $1 == 5 || $1 == 9) print $1; else print 0  }' > tmp
+cat <( head -1 map.lodlimit_27.txt ) tmp > map_for_JoinSingles2All.txt
+rm tmp
+##########################################################################################################################
+
+# how to choose the lodlimit????
+
+#try with lodLimit= 3, 20, none 
+
+##first unzip file
+gunzip data_f.call
+
+###for lodlimit=3
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+ 
+java -cp $cp JoinSingles2All numThreads=24 map=map_for_JoinSingles2All.txt data=data_f.call lodLimit=3 lodDifference=2 iterate=1 >map_after_JoinSingles2All.lodlimit3.txt
+
+###size distribution
+
+cut -f 1 map_after_JoinSingles2All.lodlimit3.txt|sort|uniq -c|sort -n
+
+##after this result shows
+    957 9
+   9730 4
+  10822 5
+  11319 0
+  16000 3
+  17390 2
+  18426 1
+
+##LG 9 increased a bit. good sign or not?
+
+###for lodlimit=20
+
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+ 
+java -cp $cp JoinSingles2All numThreads=24 map=map_for_JoinSingles2All.txt data=data_f.call lodLimit=20 lodDifference=2 iterate=1 >map_after_JoinSingles2All.lodlimit20.txt
+
+##to check size
+cut -f 1 map_after_JoinSingles2All.lodlimit20.txt|sort|uniq -c|sort -n
+
+##after run results shows this, LG 9 was even less. why?
+  178 9
+   3200 3
+   3585 4
+   4147 5
+   7409 1
+  10190 2
+  55935 0
+
+###final results lodlimit3 looks better in distribution but lets do the order markers
+
+################################################################
+##3 types of output for next step(order markers)
+
+cp map_for_JoinSingles2All.txt map_no_JoinSingles2All.txt #(for lodlimt=27 skip)
+map_after_JoinSingles2All.lodlim3.txt #(for lodlimt=3)
+map_after_JoinSingles2All.lodlim20.txt #(for lodlimt=20)
+### and also estimate the size use previous command
+
+
+
+#########################################################
+# 5. Order the markers along LGs:
+#########################################################
+
+# zipping in parallel with pigz instead of gzip
+pigz -p 12 data_f.call
+
+########## proceed for the map without JoinSingles
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+mkdir ordermarkers.Joinsingles_skip
+
+for lg in 1 2 3 4 5 9 ; do
+(zcat data_f.call.gz | java -cp $cp OrderMarkers2 numThreads=8 data=- map=map_no_JoinSingles2All.txt chromosome=${lg} > ./ordermarkers.Joinsingles_skip/order.${lg}.txt )&
+done
+wait
+
+######for map with lodlimit=3 (map_after_JoinSingles2All.lodlimit3.txt)
+
+pigz -p 12 data_f.call
+
+mkdir ordermarkers.Joinsingles_lodlimit3
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+for lg in 1 2 3 4 5 9 ; do
+(zcat data_f.call.gz | java -cp $cp OrderMarkers2 numThreads=8 data=- map=map_after_JoinSingles2All.lodlimit3.txt chromosome=${lg} > ./ordermarkers.Joinsingles_lodlimit3/order.${lg}.txt )&
+done
+wait
+
+###########for map with lodlimit=20 (map_after_JoinSingles2All.lodlimit20.txt)
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+mkdir ordermarkers.Joinsingles_lodlimit20
+
+for lg in 1 2 3 4 5 9 ; do
+(zcat data_f.call.gz | java -cp $cp OrderMarkers2 numThreads=8 data=- map=map_after_JoinSingles2All.lodlimit20.txt chromosome=${lg} > ./ordermarkers.Joinsingles_lodlimit20/order.${lg}.txt )&
+done
+wait
+
+
+
+#########################################################
+# 6. visualise
+#########################################################
+
+# "The errors in marker orders can be detected by making Lep-MAP graph and visualising it."
+"""
+The nodes of the graph are numbered in the order they first occur in the map (order_wp1_txt). The edge labels give the index for individual haplotype that recombines (changes). [The edges indicate recombinations, thus the "lanterns" indicate that there are many recombinations between adjacent markers. If there is a single edge, the label indicates recombining individual. https://sourceforge.net/p/lep-map3/discussion/general/thread/73e04a16/?limit=25#0d34 ] [ The angles / direction / turning points do not have any information, it is just a way to use available screen space more efficiently. ]
+If the order is (about) correct, the node number should be in order 1,2, ..., N when following the nodes from one end of the chain to the other. Also the size of the nodes gives information how common each marker is, uncommon markers at the ends could be erroneous. The erroneous edges are highlited with red color. 
+"""
+#####for no joint singles
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+for lg in 1 2 3 4 5 9 ; do
+java -cp $cp LMPlot ordermarkers.Joinsingles_skip/order.${lg}.txt > ordermarkers.Joinsingles_skip/order.${lg}.dot
+cat ordermarkers.Joinsingles_skip/order.${lg}.dot | dot -Tpng > ordermarkers.Joinsingles_skip/order.${lg}.dot.png
+done
+
+####for lodlimit=3
+
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+for lg in 1 2 3 4 5 9 ; do
+java -cp $cp LMPlot ordermarkers.Joinsingles_lodlimit3/order.${lg}.txt > ordermarkers.Joinsingles_lodlimit3/order.${lg}.dot
+cat ordermarkers.Joinsingles_lodlimit3/order.${lg}.dot | dot -Tpng > ordermarkers.Joinsingles_lodlimit3/order.${lg}.dot.png
+done
+
+
+
+####for lodlimit=20
+
+cp=/mnt/barn/j.abaya/ddRAD/lepmap_douglasiana/lepmap3/bin
+
+for lg in 1 2 3 4 5 9 ; do
+java -cp $cp LMPlot ordermarkers.Joinsingles_lodlimit20/order.${lg}.txt > ordermarkers.Joinsingles_lodlimit20/order.${lg}.dot
+cat ordermarkers.Joinsingles_lodlimit20/order.${lg}.dot | dot -Tpng > ordermarkers.Joinsingles_lodlimit20/order.${lg}.dot.png
+done
+
+
+
+#################
+after making using the visualization loop; i got this 
+Computing pair-wise distances
+Warning: syntax ambiguity - badly delimited number '77c' in line 506 of <stdin> splits into two tokens
+Warning: syntax ambiguity - badly delimited number '18c' in line 521 of <stdin> splits into two tokens
+Warning: syntax ambiguity - badly delimited number '156c' in line 524 of <stdin> splits into two tokens
+Warning: syntax ambiguity - badly delimited number '156c' in line 526 of <stdin> splits into two tokens
+Warning: node '1', graph 'g' size too small for label
+Warning: node '2', graph 'g' size too small for label
+Warning: node '3', graph 'g' size too small for label
+Warning: node '4', graph 'g' size too small for label
+Warning: node '5', graph 'g' size too small for label
+Warning: node '6', graph 'g' size too small for label
+
+######but could still view the maps, is this a problem?
+
+
+
+NEXT STEP USING LEPANCHOR
+########################
+# scaffold genome with Lep-Anchor
+#########################
+###paper that explains it
+https://academic.oup.com/bioinformatics/article/36/8/2359/5698268?login=true
+
+# because the Lep-Anchor wrapper uses lots of scripts and has no base path parameter, must run inside of the install directory which is lepanchor_douglasiana or furcata
+
+https://sourceforge.net/p/lep-anchor/wiki/Home/#installation
+ 
+
+## start with the installation from this flowchat called final.2022-09-15
+
+cd /mnt/barn/mscharmann/A_spectabilis_genetic_map.2022-07/final.2022-09-15
+#################################################################################################
+
+
+#####start from here 
+
+mkdir lepanchor_douglasiana
+cd lepanchor_douglasiana
+wget https://sourceforge.net/projects/lep-anchor/files/binary%2Bcode.zip
+unzip "binary+code.zip"
+
+
+# 0. link inputs:
+zcat ../lepmap_douglasiana/data_f.call.gz | sed 's/+//g' | gzip -c > data.gz
+
+for X in 1 2 3 4 5 9 ; do
+ln -s ../lepmap_douglasiana/ordermarkers.Joinsingles_lodlimit20/order.$X.txt
+done
+###to copy the reference genome from Mathias
+
+cp /mnt/barn/mscharmann/Amsinckia_PacBio_genome_asms.2023-03/douglasiana.separate_S-locus_haplotypes.2023-08/douglasiana_asm.dominant_allele_like.fa .
+
+# 1. Converting Lep-MAP3 data to Lep-Anchor
+
+# First, create file with snp names
+zcat data.gz | awk '(NR>=7){print $1"\t"$2}' >snps.txt
+
+# stick all LGs together into one map file. IMPORTANT: LGs must be named in sequential order without missing numbers gaps, otherwise lepanchor will drop them. must rename if different
+rm map_with_all_LGs.txt
+for X in 1 2 3 4 5 9 ; do
+tail -n +4 order.$X.txt > order.$X.noheader.txt
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR!=FNR){$1=map[$1] "\t" n;print}' snps.txt order.$X.noheader.txt >> map_with_all_LGs.txt
+done
+
+############################how to fix the numerical order############################################################## 
+
+# IMPORTANT: LGs must be named in sequential order without missing numbers gaps, otherwise lepanchor will drop them. must rename if different
+
+#copy python script from home directory if using a new directory 
+cp $HOME/rename_LG_for_LepAnchor.py ./
+
+##actual code, remember to change the numbers from old to new
+python rename_LG_for_LepAnchor.py map_with_all_LGs.txt 9 6
+
+
+
+# 2. Ready to run the wrapper2
+
+###do in a screen
+
+##version from website
+./lepanchor_wrapper2.sh -t 48 -T 12 -f douglasiana_asm.dominant_allele_like.fa -n 6 -m map_with_all_LGs.txt
+
+####it failed so try again with Mathias modified wrapper
+
+##first copy the modified version into the current directory
+
+cp /mnt/barn/mscharmann/A_spectabilis_genetic_map.2022-07/final.2022-09-15/lepanchor/lepanchor_wrapper2.Mathias_mod.sh .
+
+###actual code to run
+./lepanchor_wrapper2.Mathias_mod.sh -t 48 -T 12 -f douglasiana_asm.dominant_allele_like.fa -n 6 -m map_with_all_LGs.txt.name_changed.txt
+
+###do for all lodlimits 20,3 and skip
+#seperately and together using the multiple maps as inputs
+
+
+
+######################################################
+##lodlimit3 and skip gave error message
+Warning: scaffold ptg000015l_gapped     46684257 not in agp file2
+Warning: scaffold ptg000015l_gapped     5943399 not in agp file2
+Warning: scaffold ptg000015l_gapped     46025754 not in agp file2
+Warning: scaffold ptg000015l_gapped     46210340 not in agp file2
+###is this a problem? but there were still maps though
+
+########################################
+#skip joint singles didnt do a macey plot for order 1 and the scafflod 1 file was empty dont know why. 
+
+
+#################### important lepanchor can use multiple input maps
+
+###### stuff Mathias did#############################
+###################### now follow exactly the website instructions..
+# First, create file with snp names
+zcat data.gz | awk '(NR>=7){print $1"\t"$2}' >snps.txt
+
+for X in 1 2 3 4 5 9 ; do
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR!=FNR){$1=map[$1] "\t" n;print}' snps.txt order.$X.txt >order${X}_i.input
+done >map_all_chr.txt
+
+# ok when doing this the file map_all... is empty.
+
+
+##########################################################
+MULTIPLE MAPS THAT I TRIED
+
+#####
+mkdir lepanchor_douglasiana_multiple
+cd lepanchor_douglasiana_multiple
+wget https://sourceforge.net/projects/lep-anchor/files/binary%2Bcode.zip
+unzip "binary+code.zip"
+
+
+# 0. link inputs:
+zcat ../lepmap_douglasiana/data_f.call.gz | sed 's/+//g' | gzip -c > data.gz
+
+for X in 1 2 3 4 5 9 ; do
+ln -s ../lepmap_douglasiana/ordermarkers.Joinsingles_lodlimit20/order.$X.txt
+done
+
+for X in 1 2 3 4 5 9 ; do
+ln -s ../lepmap_douglasiana/ordermarkers.Joinsingles_lodlimit3/order.$X.txt
+done
+
+for X in 1 2 3 4 5 9 ; do
+ln -s ../lepmap_douglasiana/ordermarkers.Joinsingles_skip/order.$X.txt
+done
+#####couldnt find how to extend this
+
+###tried this
+for X in 1 2 3 4 5 9 ; do
+ln -s ../lepmap_douglasiana/ordermarkers.Joinsingles_lodlimit20 ordermarkers.Joinsingles_lodlimit3 ordermarkers.Joinsingles_skip/order.$X.txt
+done
+
+###still didn't work
+
+
+
+
+
+
+
+
+
+# 1. Converting Lep-MAP3 data to Lep-Anchor
+
+# stick all LGs together into one map file. IMPORTANT: LGs must be named in sequential order without missing numbers gaps, otherwise lepanchor will drop them. must rename if different
+rm map_with_all_LGs.txt
+for X in 1 2 3 4 5 9 ; do
+tail -n +4 order.$X.txt > order.$X.noheader.txt
+awk -vn=$X '(NR==FNR){map[NR-1]=$0}(NR!=FNR){$1=map[$1] "\t" n;print}' snps.txt order.$X.noheader.txt >> map_with_all_LGs.txt
+done
+
+############################how to fix the numerical order############################################################## 
+
+# IMPORTANT: LGs must be named in sequential order without missing numbers gaps, otherwise lepanchor will drop them. must rename if different
+
+##actual code, remember to change the numbers from old to new
+python rename_LG_for_LepAnchor.py map_with_all_LGs.txt 9 6
+
+
+
+# 2. Ready to run the wrapper2
+
+###do in a screen
+
+
+###actual code to run
+./lepanchor_wrapper2.Mathias_mod.sh -t 48 -T 12 -f douglasiana_asm.dominant_allele_like.fa -n 6 -m map_with_all_LGs.txt.name_changed.txt
+
+
+####to change marey maps (change script from new to old)
+
+cp /mnt/barn/j.abaya/ddRAD/lepanchor_douglasiana_lodlimit20/plot_marey.R .
+####run R script again
+Rscript plot_marey.R     
+
+
+########how to fix the numerical order############################################################## 
+
+#copy python script from home directory if using a new directory 
+
+cp "/mnt/barn/j.abaya/ddRAD/lepanchor_douglasiana_lodlimit3/rename_LG_for_LepAnchor.py" ./
+
+##actual code, remember to change the numbers from old to new
+
+python rename_LG_for_LepAnchor.py map_with_all_LGs.txt 9 6
+
+
+ 

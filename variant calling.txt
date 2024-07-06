@@ -1,0 +1,135 @@
+ #basic command for variant calling
+##tools; bcf, bzip and vcf
+
+# --max-depth 250: use at most 250 reads per input BAM file (by default only 250 reads per file are considered at a position)
+# --min-MQ 20: minimum mapping quality of an alignment, otherwise skip
+# --variants-only
+
+##FOR DOUGLASIANA
+
+screen -S variant_douglasina
+
+ls mapping_douglasiana/*.bam > bamlist
+
+ref=mapping_douglasiana/douglasiana_asm.dominant_allele_like.fa
+
+
+bcftools mpileup -Ou -f $ref --bam-list bamlist --max-depth 250 --min-MQ 20 -a DP | bcftools call -m --variants-only --skip-variants indels -Ov | bgzip -c > douglasiana_raw.vcf.gz
+
+##to just view
+samtools mpileup $list_of_bamfiles
+
+##to check if its complete
+ zcat douglasiana_raw.vcf.gz | grep -v "#" | cut -f1 | sort | uniq | wc -l
+
+### types of filters===individuals, sites and genotypes; adapting from http://www.ddocent.com//filtering/
+
+##filtering of the site
+
+vcftools --gzvcf douglasiana_raw.vcf.gz --max-missing 0.5 --mac 3 --minQ 30 --recode --recode-INFO-all --out fitering_step1
+
+# After filtering, kept 262957 out of a possible 1262622 Sites
+
+##genotype filtering for depth
+
+vcftools --vcf fitering_step1.recode.vcf --minDP 6 --recode --recode-INFO-all --out fitering_step2
+
+##all sites kept
+
+#filtering individuals {it makes its own file}
+
+vcftools --vcf fitering_step2.recode.vcf --missing-indv
+
+# no bad ones found
+
+#individual filtering to check the measure of heterozygosity
+
+vcftools --vcf fitering_step2.recode.vcf --het
+
+#final filtering step
+
+vcftools --vcf fitering_step2.recode.vcf --max-missing 0.7 --mac 6 --recode --recode-INFO-all --out douglasiana_fitering_final_step
+
+# After filtering, the result was sequences: 192 individuals, sites: 109886
+
+
+rm fitering_step1.recode.vcf fitering_step2.recode.vcf
+
+##FOR FURCATA
+
+screen -S variant_furcata
+
+ls mapping_furcata/*.bam > bamlist
+
+ref=mapping_furcata/furcata_asm.dominant_allele_like.fa
+ 
+conda activate ddrad
+
+bcftools mpileup -Ou -f $ref --bam-list bamlist --max-depth 250 --min-MQ 20 -a DP | bcftools call -m --variants-only --skip-variants indels -Ov | bgzip -c > furcata_raw.vcf.gz
+
+
+##to just view
+samtools mpileup $list_of_bamfiles
+
+##to check if its complete
+ zcat furcata_raw.vcf.gz | grep -v "#" | cut -f1 | sort | uniq | wc -l
+
+#good
+
+
+### types of filters===individuals, sites and genotypes; adapting from http://www.ddocent.com//filtering/
+
+##filtering of the site
+
+vcftools --gzvcf furcata_raw.vcf.gz --max-missing 0.5 --mac 3 --minQ 30 --recode --recode-INFO-all --out fitering_step1
+
+##After filtering, kept 354764 out of a possible 1299099 Sites
+
+##genotype filtering for depth
+
+vcftools --vcf fitering_step1.recode.vcf --minDP 6 --recode --recode-INFO-all --out fitering_step2
+
+##After filtering, kept 354764 out of a possible 354764 Sites
+
+#filtering individuals {it makes its own file}
+
+vcftools --vcf fitering_step2.recode.vcf --missing-indv
+
+##After filtering, kept 354764 out of a possible 354764 Sites so no bad ones found
+
+#individual filtering to check the measure of heterozygosity
+
+vcftools --vcf fitering_step2.recode.vcf --het
+
+##After filtering, kept 354764 out of a possible 354764 Sites
+
+#final filtering step
+
+vcftools --vcf fitering_step2.recode.vcf --remove sample_to_go --max-missing 0.7 --mac 6 --recode --recode-INFO-all --out furcata_fitering_final_step
+
+##After filtering, kept 155807 out of a possible 354764 Sites
+
+## real results; 191 individuals, sites: 155807
+
+##to remove the steps
+
+rm fitering_step1.recode.vcf fitering_step2.recode.vcf
+
+###PCA (did not use)
+
+##file to use; furcata_fitering_final_step
+
+plink --vcf furcata_fitering_final_step.recode.vcf --double-id --allow-extra-chr \
+--set-missing-var-ids @:# \
+--indep-pairwise 50 10 0.1 --out parentage_furcata
+
+##gave furcata.prune.in and .out
+
+##for the pca
+
+plink --vcf furcata_fitering_final_step.recode.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# \
+--extract parentage_furcata.prune.in \
+--make-bed --pca --out furcata_douglasiana
+
+
+

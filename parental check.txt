@@ -1,0 +1,306 @@
+#how to log in ddRAD 
+
+#login
+ssh j.abaya@141.89.108.208
+
+#password
+zing
+
+#change directory
+cd /mnt/barn/j.abaya
+cd ddRAD
+
+##to get the program from mathias github
+
+wget https://raw.githubusercontent.com/mscharmann/tools/master/parentage_check.py
+
+#make a new directory(already done)
+parentage_douglasiana
+
+
+##go into new dirctory
+cd parentage_douglasiana
+
+##parentage filtering; to get an input for sequoia
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep replicate2 > exclude_samples.txt
+
+vcftools --vcf ../douglasiana_fitering_final_step.recode.vcf --remove exclude_samples.txt --max-missing 0.7 --maf 0.3 --thin 10000 --recode --stdout > douglasiana_parentage.step1.vcf
+
+# random sub-sample of variants
+# list of all positions
+bcftools view --no-header douglasiana_parentage.step1.vcf | cut -f1,2 | shuf | head -n 3000 > random_positions.txt
+
+vcftools --vcf douglasiana_parentage.step1.vcf --positions random_positions.txt --recode --stdout > douglasiana_parentage.step2.vcf
+
+
+# convert vcf format files into sequoia format with plink 
+
+plink --vcf douglasiana_parentage.step2.vcf --double-id --allow-extra-chr --recodeA
+
+
+## construct "LifeHistData" Table with sexes and "birth years"
+bcftools query douglasiana_parentage.step2.vcf --l | grep SMS7_ | grep _S_ | awk '{print $1"\t1\t1"}' > names_sexes_birthyears.txt
+bcftools query douglasiana_parentage.step2.vcf --l | grep SMS7_ | grep _L_ | awk '{print $1"\t2\t1"}' >> names_sexes_birthyears.txt
+bcftools query douglasiana_parentage.step2.vcf --l | grep SMS10_ | grep _S_ | awk '{print $1"\t1\t1"}' >> names_sexes_birthyears.txt
+bcftools query douglasiana_parentage.step2.vcf --l | grep SMS10_ | grep _L_ | awk '{print $1"\t2\t1"}' >> names_sexes_birthyears.txt
+
+bcftools query douglasiana_parentage.step2.vcf --l | grep -v SMS7_ | grep -v SMS10_ | awk '{print $1"\t1\t10"}' >> names_sexes_birthyears.txt
+
+
+
+##now go to THE R PROGRAM
+
+R
+
+
+# load the package
+library(sequoia)  
+
+genotype_matrix <- GenoConvert(InFile = "plink.raw",
+  InFormat = "raw")
+  
+sexes_birthyears <- read.table("names_sexes_birthyears.txt", sep = "\t", header = F)
+colnames(sexes_birthyears) <- c("ID","Sex","BirthYear")
+
+
+# sanity check genotype matrix
+pdf("SnpStats.pdf")
+CheckGeno(genotype_matrix, Plot = TRUE)
+dev.off()
+
+
+
+### actual inference
+parentage_result <- sequoia(genotype_matrix, sexes_birthyears, Module = "par", MaxSibshipSize = 500, Err = 1e-04)
+
+parentage_result$PedigreePar
+
+write.table(parentage_result$PedigreePar, "parentage_assigned_results.txt", sep = "\t", quote = FALSE)
+
+
+https://speciationgenomics.github.io/pca/
+
+
+
+###stuff i tried with the pca stuff
+
+
+plink --vcf douglasiana_parentage.step2.vcf --double-id --allow-extra-chr \
+--set-missing-var-ids @:# \
+--indep-pairwise 50 10 0.1 --out parentage_douglasiana
+
+##gave douglasisana.prune.in and .out
+
+##for the pca
+
+plink --vcf douglasiana_parentage.step2.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# \
+--extract parentage_douglasiana.prune.in \
+--make-bed --pca --out parentage_douglasiana
+
+##gave some eingiverfiles
+
+##used a different program called tidyverse
+
+##to load the program
+
+library(tidyverse)
+##could load as it said it wasn't found; try to google it. said it's in Rstudio shouldnt it also be in R
+
+
+
+one that might work
+
+# random sub-sample of variants (not necessary)
+# list of all positions
+##bcftools view --no-header SMS7_complete.step1.recode.vcf | cut -f1,2 | shuf | head -n 3000 > random_positions.txt
+
+##vcftools --vcf SMS7_complete.step1.recode.vcf --positions random_positions.txt --recode --stdout > SMS7_complete.step2.recode.vcf
+
+################################################
+
+##to make files with parents and progeny seperate
+
+cd parentage_douglasiana/
+
+bcftools query douglasiana_parentage.step2.vcf --l | grep SMS7_ > parents.txt
+bcftools query douglasiana_parentage.step2.vcf --l | grep SMS10_ >> parents.txt
+
+bcftools query douglasiana_parentage.step2.vcf --l | grep -v SMS7_ | grep -v SMS10_ > progeny.txt
+
+##to check the parentage using Mathias program 
+
+python parentage_check.py --vcf douglasiana_parentage.step2.vcf --possible_parents parents.txt --progeny progeny.txt
+
+##make sure its correct in the extraction files_parents in Excel
+
+#################################################################################
+###TRY THIS REAL STUFF
+
+###To make new files with only the sms7 parent and progeny
+
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS7_ > SMS7_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS104_ >> SMS7_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS105_ >> SMS7_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS106_ >> SMS7_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS107_ >> SMS7_complete.txt
+
+##to create a subset of sms7
+vcftools --vcf ../douglasiana_fitering_final_step.recode.vcf --keep SMS7_complete.txt --mac 1 --maf 0.1 --max-missing 0.9 --recode --out SMS7_complete.step1
+
+##now separate progeny and parents
+##for parents
+
+bcftools query SMS7_complete.step1.recode.vcf --l | grep replicate > SMS7_parents.txt
+
+##to remove the fathers and replicates (edit this manually in nano then save with y)
+
+cp SMS7_parents.txt SMS7_parents.noS_replicate.txt
+nano SMS7_parents.noS.txt    
+
+##to remove the fathers and replicates (edit this manually in nano then save with y)
+
+cp SMS7_parents.txt SMS7_parents.noS_replicate.txt
+nano SMS7_parents.noS_replicate.txt    
+
+#for progeny
+
+bcftools query SMS7_complete.step1.recode.vcf --l | grep -v replicate > SMS7_progeny.txt
+
+##now do the actual parental step with ranking with less parents and no replicates
+python parentage_check.py --vcf SMS7_complete.step1.recode.vcf --possible_parents SMS7_parents.noS.txt --progeny SMS7_progeny.txt
+
+##how to do the actual parental step with ranking with less parents with replicates
+python parentage_check.py --vcf SMS7_complete.step1.recode.vcf --possible_parents SMS7_parents.noS_replicate.txt --progeny SMS7_progeny.txt
+
+##now do the actual parental step with all parents
+python parentage_check.py --vcf SMS7_complete.step1.recode.vcf --possible_parents SMS7_parents.txt --progeny SMS7_progeny.txt
+
+
+
+##############################################################################
+##for SMS10
+
+###To make new files with only the sms10 parent and progeny bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS10_ > SMS10_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS108_ >> SMS10_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS109_ >> SMS10_complete.txt
+bcftools query ../douglasiana_fitering_final_step.recode.vcf --l | grep SMS110_ >> SMS10_complete.txt
+
+##to create a subset of sms10
+vcftools --vcf ../douglasiana_fitering_final_step.recode.vcf --keep SMS10_complete.txt --maf 0.1 --recode --out SMS10_complete.step1
+
+##gave 97 individuals why? shouldnt it be 96 individuals?
+
+##now separate progeny and parents
+#For parents
+
+bcftools query SMS10_complete.step1.recode.vcf --l | grep replicate > SMS10_parents.txt
+
+##to remove the father and no replicates (cp real file and then open in nano to edit this manually in nano then save with y)
+
+cp SMS10_parents.txt SMS10_parents.noS.txt
+nano SMS10_parents.noS.txt    
+
+##to remove the father but still leave the replicates (cp real file and then open in nano to edit this manually in nano then save with y)
+
+cp SMS10_parents.txt SMS10_parents.noS_replicate.txt
+nano SMS10_parents.noS_replicate.txt   
+ 
+#for progeny
+
+bcftools query SMS10_complete.step1.recode.vcf --l | grep -v replicate > SMS10_progeny.txt
+
+####how to do the actual parental step with ranking with less parents no replicates
+
+python parentage_check.py --vcf SMS10_complete.step1.recode.vcf --possible_parents SMS10_parents.noS.txt --progeny SMS10_progeny.txt
+
+##how to do the actual parental step with ranking with less parents with the replicates
+
+python parentage_check.py --vcf SMS10_complete.step1.recode.vcf --possible_parents SMS10_parents.noS_replicate.txt --progeny SMS10_progeny.txt
+
+##how to do the actual parental check with all parents
+python parentage_check.py --vcf SMS10_complete.step1.recode.vcf --possible_parents SMS10_parents.txt --progeny SM10_progeny.txt
+
+##rank them according to the one that has the highest similarity (the python script already has a changed program with the ranks from  mathias github= wget https://raw.githubusercontent.com/mscharmann/tools/master/parentage_check.py
+
+###PCA stuff i tried
+
+#### for all parents with replicates
+
+plink --vcf SMS7_complete.step1.recode.vcf --double-id --allow-extra-chr \
+--set-missing-var-ids @:# \
+--indep-pairwise 50 10 0.1 --out parentage_douglasiana
+
+##gave douglasisana.prune.in and .out
+##but removed almost everything...why?
+
+##for the pca
+
+plink --vcf SMS7_complete.step1.recode.vcf --double-id --allow-extra-chr --set-missing-var-ids @:# \
+--extract parentage_douglasiana.prune.in \
+--make-bed --pca --out parentage_douglasiana
+
+##output wasnt readable and couldnt make a plot. 
+so i tried to make a file without replicates
+
+##to find the error btw the replicates
+
+#for SMS7
+bcftools query SMS7_complete.step1.recode.vcf --l | grep -v replicate1 > SMS7_progeny.txt
+
+python parentage_check.py --vcf SMS7_complete.step1.recode.vcf --possible_parents SMS7_parents.noS.txt --progeny SMS7_progeny.txt
+
+#FOR SMS10
+bcftools query SMS10_complete.step1.recode.vcf --l | grep -v replicate1 > SMS10_progeny.txt
+
+python parentage_check.py --vcf SMS10_complete.step1.recode.vcf --possible_parents SMS10_parents.noS.txt --progeny SMS10_progeny.txt
+
+################################################################################
+##for furcata
+
+##change directory
+cd parentage_furcata
+
+#load the python script from Mathias wget in the current directory
+
+wget https://raw.githubusercontent.com/mscharmann/tools/master/parentage_check.py
+
+##separate progeny and parents
+
+##for parents
+
+bcftools query ../furcata_fitering_final_step.recode.vcf --l | grep SMS74 > furcata_parents.txt
+
+bcftools query ../furcata_fitering_final_step.recode.vcf --l | grep SMS79 >> furcata_parents.txt
+
+#for progeny
+
+bcftools query ../furcata_fitering_final_step.recode.vcf --l | grep -v SMS7 > furcata_progeny.txt
+
+##now do the actual parental check step 
+
+python parentage_check.py --vcf ../furcata_fitering_final_step.recode.vcf --possible_parents furcata_parents.txt --progeny furcata_progeny.txt
+
+
+#############################furcata remove bad individuals and replicates##########################################################
+##take 127 and 128 out...SMS79
+
+bcftools query furcata_fitering_final_step.recode.vcf --l | grep SMS127 > samples_to_drop.txt
+bcftools query furcata_fitering_final_step.recode.vcf --l | grep SMS128 >> samples_to_drop.txt
+
+
+## to remove bad ones using missingness or non grouping on the tree
+##make the file by opening nano and copy and paste the sample names you need.
+
+vcftools --vcf furcata_fitering_final_step.recode.vcf --remove remove_bad_128 --max-missing 0.7 --mac 6 --recode --out furcata_for_genetic_mapping
+##After filtering, kept 173 out of 191 Individuals and 152962 out of a possible 155807 Sites
+
+############################################douglasiana remove bad individuals and replicates###############################
+
+## to remove bad ones using missingness or non grouping on the tree
+##make the file by opening nano and copy and paste the sample names you need.
+
+vcftools --vcf douglasiana_fitering_final_step.recode.vcf --remove remove_bad_douglasiana --max-missing 0.7 --mac 6 --recode --out douglasiana_for_genetic_mapping
+##After filtering, kept 183 out of 192 Individuals and 108631 out of a possible 109886 Sites
+
+
+

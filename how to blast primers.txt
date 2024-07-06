@@ -1,0 +1,53 @@
+#login
+ssh j.abaya@141.89.108.208
+
+#password
+zing
+
+#change directory
+ cd /mnt/barn/j.abaya/qpcr
+
+
+#to move stuff
+mv previous location final location
+
+#how to delete a directory
+rm -rf
+
+#to copy stuff from mathias
+cp .....mscharmann.filename
+
+#to copy a file from another directory(eg home) into the present directory(.)
+cp /home/j.abaya/primerpair1.txt .
+
+#how to make a blast search file for eg; primers
+makeblastdb -dbtype nucl -in pacbio_homoz_S_morph.purged.fa
+
+#*how to make a blast search 
+#eg tubulin
+
+blastn -num_threads 16 -query tubulin -db all_genes.CDS.fasta -task blastn-short -outfmt "6 qseqid sseqid qlen slen sstart send length pident mismatch" > blastresult.txt
+
+#eg for cloning primers with amsinckia genome
+blastn -num_threads 16 -query primerpair3.txt -db pacbio_homoz_S_morph.purged.fa -task blastn-short -outfmt "6 qseqid sseqid qlen slen sstart send length pident mismatch" > blastresult.txt
+
+#how to view blast result
+cat blastresult.txt
+
+
+#how to rename a file
+mv oldfilename newfilename 
+
+ #how to make a fasta file using eg nano
+nano
+>primerpair1left
+.................(for example a sequence)
+>primerpair1right
+................(for example a sequence)
+press ctrl and q
+then select yes to safe new buffer
+then name the file dont forget the file extension or file type eg .txt for a text file or fasta file use .fasta 
+
+#for later use
+cat blastresult.txt | awk 'OFS="\t" {if ($7/$3 == 1) print}' | awk 'OFS = "\t" {if ($5<$6) print $2,$5-1,$6,$1 ; else print $2,$6-1,$5,$1 }' | bedtools sort
+

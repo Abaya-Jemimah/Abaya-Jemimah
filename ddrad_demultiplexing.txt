@@ -1,0 +1,920 @@
+#ddRAD stuff
+
+#login
+ssh j.abaya@141.89.108.208
+
+#password
+zing
+
+#change directory
+cd /mnt/barn/j.abaya
+cd ddRAD
+
+#to link stuff --eg
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData
+
+
+#get the barcode list
+cp /mnt/barn/mscharmann/A_spectabilis_genetic_map.2022-07/ddRAD_utilities/barcodes.EcoRI.5bp.Petersen_etal.txt ./
+
+#get the list of sample names and their barcodes, libs etc
+cp /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/species_samples_libs_barcodes_all.2023-09-01.txt .
+
+##START
+
+##test sample data
+
+## to filter the quality of the data for the barcodes. its important!.
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 test.1.fq.gz test.2.fq.gz 
+
+# demultiplex in a screen to avoid stoping(remember to change test.1 and 2 to real name)
+
+screen
+mkdir demultiplex_test (change name for each library and specie)
+process_radtags --inline_null -1 test.1.fq.gz.HQbarcode.fq -2 test.2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./demultiplex_test
+
+
+cd demultiplex_test(use new name)
+#To remove the reads that had low-quality reads
+rm *rem*
+
+#STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+l
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+# after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+ 
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat test.1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat test.1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 demultiplex_test/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+# rename samples (don't forget to change the library number in the grep command)
+
+
+mkdir demultiplexed_samples_all #(add the specie eg douglasiana or furcata)
+
+
+grep Dlib1 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	cp demultiplex_test/sample_${bc}.1.fq.gz demultiplexed_samples_all/${name}.F.fq.gz
+	cp demultiplex_test/sample_${bc}.2.fq.gz demultiplexed_samples_all/${name}.R.fq.gz
+done < fulist
+
+
+
+#start douglasiana real
+#lib1
+ #step 1
+
+##soft link to each file
+
+#pair1
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib1/Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_1.fq.gz
+
+#pair2
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib1/Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_2.fq.gz
+
+
+##To filter(always do this in a screen) 
+
+screen -S Douglasiana_lib1_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_1.fq.gz Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_2.fq.gz
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S Douglasiana_lib1
+mkdir Douglasiana_lib1 
+process_radtags --inline_null -1 Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_1.fq.gz.HQbarcode.fq -2 Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./Douglasiana_lib1
+
+##to go into new directory just created
+cd Douglasiana_lib1
+
+##To remove the reads that had low-quality reads (doesn't take time)
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Dlib1_EKDL230012598-1A_HJHKFDSX7_L4_1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 Douglasiana_lib1/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+
+
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+mkdir demultiplexed_samples_all_douglasiana
+#(add the specie eg douglasiana or furcata)
+
+#to just print the results to check
+
+grep Dlib1 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo Douglasiana_lib1/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+
+echo Douglasiana_lib1/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from Douglasiana_lib1 to demultiplexed_samples_all_douglasiana
+
+grep Dlib1 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp Douglasiana_lib1/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+cp Douglasiana_lib1/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.R.fq.gz
+done < fulist
+
+##lib2
+
+ #step 1
+
+##soft link to each file
+
+#pair1
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib2/Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_1.fq.gz
+
+
+#pair2
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib2/Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_2.fq.gz
+
+##To filter(always do this in a screen) 
+
+screen -S Douglasiana_lib2_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_1.fq.gz Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_2.fq.gz
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S Douglasiana_lib2
+mkdir Douglasiana_lib2 
+process_radtags --inline_null -1 Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_1.fq.gz.HQbarcode.fq -2 Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./Douglasiana_lib2
+
+##to go into the new directory just created
+cd Douglasiana_lib2
+
+##To remove the reads that had low-quality reads (doesn't take time)
+
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Dlib2_EKDL230012599-1A_HJH2CDSX7_L3_1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 Douglasiana_lib2/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+#to just print the results to check
+
+grep Dlib2 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo Douglasiana_lib2/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+
+echo Douglasiana_lib2/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from Douglasiana_lib2 to demultiplexed_samples_all_douglasiana
+
+grep Dlib2 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp Douglasiana_lib2/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+cp Douglasiana_lib2/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.R.fq.gz
+done < fulist
+
+
+##lib3
+#Has so many files so try to merge them together using the the cat command
+make sure you merge all the 1s together and all the 2s together
+ #step 1
+
+screen -S merge_lib3_1
+##pair1
+
+cat /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib3/Dlib3_EKDL230012600-1A_HJK33DSX7_L1_1.fq.gz /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib3/Dlib3_EKDL230012600-1A_HJH2CDSX7_L3_1.fq.gz > Lib3_forward.1.fq.gz
+
+screen -S merge_lib3_2
+
+#pair2
+
+cat /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib3/Dlib3_EKDL230012600-1A_HJK33DSX7_L1_2.fq.gz /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib3/Dlib3_EKDL230012600-1A_HJH2CDSX7_L3_2.fq.gz > Lib3_reverse.2.fq.gz
+
+##no need to create soft link
+
+##To filter(always do this in a screen) 
+
+screen -S Douglasiana_lib3_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Lib3_forward.1.fq.gz Lib3_reverse.2.fq.gz
+
+
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S Douglasiana_lib3
+mkdir Douglasiana_lib3 
+process_radtags --inline_null -1 Lib3_forward.1.fq.gz.HQbarcode.fq -2 Lib3_reverse.2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./Douglasiana_lib3
+
+continue here
+
+##to go into the new directory just created
+
+cd Douglasiana_lib3
+
+##To remove the reads that had low-quality reads (doesn't take time)
+
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##problem at this stage--> check 
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Lib3_forward.1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Lib3_forward.1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 Douglasiana_lib3/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+#to just print the results to check
+
+grep Dlib3 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo Douglasiana_lib3/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+
+echo Douglasiana_lib3/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from Douglasiana_lib3 to demultiplexed_samples_all_douglasiana
+
+grep Dlib3 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp Douglasiana_lib3/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+cp Douglasiana_lib3/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.R.fq.gz
+done < fulist
+
+
+
+##lib4
+
+ #step 1
+
+##soft link to each file
+
+#pair1
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib4/Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_1.fq.gz 
+
+#pair2
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Dlib4/Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_2.fq.gz
+
+
+
+##To filter(always do this in a screen) 
+
+screen -S Douglasiana_lib4_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_1.fq.gz Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_2.fq.gz 
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S Douglasiana_lib4
+mkdir Douglasiana_lib4 
+process_radtags --inline_null -1 Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_1.fq.gz.HQbarcode.fq -2 Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./Douglasiana_lib4
+
+
+##to go into the new directory just created
+cd Douglasiana_lib4
+
+##To remove the reads that had low-quality reads (doesn't take time)
+
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Dlib4_EKDL230012601-1A_HJH2CDSX7_L4_1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 Douglasiana_lib4/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+#to just print the results to check
+
+grep Dlib4 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo Douglasiana_lib4/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+
+echo Douglasiana_lib4/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from Douglasiana_lib4 to demultiplexed_samples_all_douglasiana
+
+grep Dlib4 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp Douglasiana_lib4/sample_${bc}.1.fq.gz demultiplexed_samples_all_douglasiana/${name}.F.fq.gz
+cp Douglasiana_lib4/sample_${bc}.2.fq.gz demultiplexed_samples_all_douglasiana/${name}.R.fq.gz
+done < fulist
+
+
+
+
+
+#start furcata real
+#lib1
+ #step 1
+
+##soft link to each file
+
+#pair1
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib1/Flib1_EKDL230012602-1A_HJH2CDSX7_L4_1.fq.gz
+
+#pair2
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib1/Flib1_EKDL230012602-1A_HJH2CDSX7_L4_2.fq.gz
+
+
+##To filter(always do this in a screen) 
+
+screen -S furcata_lib1_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Flib1_EKDL230012602-1A_HJH2CDSX7_L4_1.fq.gz Flib1_EKDL230012602-1A_HJH2CDSX7_L4_2.fq.gz
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S furcata_lib1
+mkdir furcata_lib1 
+process_radtags --inline_null -1 Flib1_EKDL230012602-1A_HJH2CDSX7_L4_1.fq.gz.HQbarcode.fq -2 Flib1_EKDL230012602-1A_HJH2CDSX7_L4_2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./furcata_lib1
+
+##to go into new directory just created
+cd furcata_lib1
+
+##To remove the reads that had low-quality reads (doesn't take time)
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Flib1_EKDL230012602-1A_HJH2CDSX7_L4_1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Flib1_EKDL230012602-1A_HJH2CDSX7_L4_1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 furcata_lib1/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+
+
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+mkdir demultiplexed_samples_all_furcata
+#(add the specie eg douglasiana or furcata)
+
+#to just print the results to check
+
+grep Flib1 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo furcata_lib1/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+
+echo furcata_lib1/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from furcata_lib1 to demultiplexed_samples_all_furcata
+
+grep Flib1 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp furcata_lib1/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+cp furcata_lib1/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.R.fq.gz
+done < fulist
+
+
+##lib2
+
+#step 1
+
+##soft link to each file
+
+#pair1
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib2/Flib2_EKDL230012603-1A_HJHM5DSX7_L1_1.fq.gz
+
+#pair2
+
+ln -s /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib2/Flib2_EKDL230012603-1A_HJHM5DSX7_L1_2.fq.gz
+
+##To filter(always do this in a screen) 
+
+screen -S furcata_lib2_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Flib2_EKDL230012603-1A_HJHM5DSX7_L1_1.fq.gz Flib2_EKDL230012603-1A_HJHM5DSX7_L1_2.fq.gz
+
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S furcata_lib2
+mkdir furcata_lib2 
+process_radtags --inline_null -1 Flib2_EKDL230012603-1A_HJHM5DSX7_L1_1.fq.gz.HQbarcode.fq -2 Flib2_EKDL230012603-1A_HJHM5DSX7_L1_2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./furcata_lib2
+
+
+
+##to go into new directory just created
+cd furcata_lib2
+
+##To remove the reads that had low-quality reads (doesn't take time)
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Flib2_EKDL230012603-1A_HJHM5DSX7_L1_1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Flib2_EKDL230012603-1A_HJHM5DSX7_L1_1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 furcata_lib2/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+
+
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+#to just print the results to check
+
+grep Flib2 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo furcata_lib2/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+
+echo furcata_lib2/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from furcata_lib2 to demultiplexed_samples_all_furcata
+
+grep Flib2 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp furcata_lib2/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+cp furcata_lib2/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.R.fq.gz
+done < fulist
+
+
+##lib3
+
+
+#Has so many files so try to merge them together using the the cat command
+make sure you merge all the 1s together and all the 2s together
+ #step 1
+
+##pair1
+screen -S merge_flib3_1
+
+cat /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib3/Flib3_EKDL230012604-1A_HJHM5DSX7_L1_1.fq.gz /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib3/Flib3_EKDL230012604-1A_HJK33DSX7_L3_1.fq.gz > Flib3_forward.1.fq.gz
+
+##pair2
+
+screen -S merge_flib3_2
+
+
+cat /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib3/Flib3_EKDL230012604-1A_HJHM5DSX7_L1_2.fq.gz /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib3/Flib3_EKDL230012604-1A_HJK33DSX7_L3_2.fq.gz > Flib3_reverse.2.fq.gz
+
+##to filter
+
+screen -S furcata_lib3_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Flib3_forward.1.fq.gz Flib3_reverse.2.fq.gz
+
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S furcata_lib3
+mkdir furcata_lib3 
+process_radtags --inline_null -1 Flib3_forward.1.fq.gz.HQbarcode.fq -2 Flib3_reverse.2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./furcata_lib3
+
+
+##to go into new directory just created
+cd furcata_lib3
+
+##To remove the reads that had low-quality reads (doesn't take time)
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+continue
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Flib3_forward.1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Flib3_forward.1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 furcata_lib3/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+#to just print the results to check
+
+grep Flib3 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo furcata_lib3/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+
+echo furcata_lib3/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from furcata_lib3 to demultiplexed_samples_all_furcata
+
+grep Flib3 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp furcata_lib3/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+cp furcata_lib3/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.R.fq.gz
+done < fulist
+
+
+
+##lib4
+
+
+#Has so many files so try to merge them together using the the cat command
+make sure you merge all the 1s together and all the 2s together
+ #step 1
+
+##pair1
+screen -S merge_flib4_1
+
+cat /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib4/Flib4_EKDL230012605-1A_HJKNVDSX7_L1_1.fq.gz /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib4/Flib4_EKDL230012605-1A_HJGVCDSX7_L3_1.fq.gz > Flib4_forward.1.fq.gz
+
+##pair2
+
+screen -S merge_flib4_2
+
+
+cat /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib4/Flib4_EKDL230012605-1A_HJKNVDSX7_L1_2.fq.gz /mnt/barn/mscharmann/raw_data/2023-08-23-Novogene-Amsinckia-furcata-douglasiana-families-ddRAD/X204SC23073510-Z01-F001/01.RawData/Flib4/Flib4_EKDL230012605-1A_HJGVCDSX7_L3_2.fq.gz > Flib4_reverse.2.fq.gz
+
+
+##to filter
+
+screen -S furcata_lib4_filter 
+
+#to give the screen a name so i am sure which one is running easily; screen -S (name)
+#(#to go out of screen;  ctrl+a and then d 
+#to list the screens running; screen -ls
+#to return screen; screen -r screen number or top
+#to kill screen use exit
+#to go detach when still attached use; screen -d
+
+##actual code to filter(write the command below in the screen that opens)(takes time)
+
+python2 readfq_filter_phred20_in_barcode.PE_reads.py 5 Flib4_forward.1.fq.gz Flib4_reverse.2.fq.gz
+
+
+
+##demultiplexing (do in a screen as well)(takes time)
+
+screen -S furcata_lib4
+mkdir furcata_lib4 
+process_radtags --inline_null -1 Flib4_forward.1.fq.gz.HQbarcode.fq -2 Flib4_reverse.2.fq.gz.HQbarcode.fq --renz_1 ecoRI --renz_2 taqI -E phred33 -q -w 0.15 -s 20 -b barcodes.EcoRI.5bp.Petersen_etal.txt -o ./furcata_lib4
+
+
+##to go into new directory just created
+cd furcata_lib4
+
+##To remove the reads that had low-quality reads (doesn't take time)
+rm *rem*
+
+##to zip file and change the characters(takes time)
+
+##STACKS adds a strange _1 or _2 character to the end of processed reads, this looks for checks for errant characters and replaces them.
+NUMProc=12
+echo "Removing the _1 character and replacing with /1 in the name of every sequence"
+ls sample_* | sed 's/.1.fq//g' | sed 's/.2.fq//g' | sort | uniq > namelist
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.1.fq | sed -e 's:_1$:/1:g' > {}.1.fq_tmp && mv {}.1.fq_tmp {}.1.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.1.fq"
+
+echo "Removing the _2 character and replacing with /2 in the name of every sequence"
+cat namelist | parallel -j $NUMProc --no-notice "cat {}.2.fq | sed -e 's:_2$:/2:g' > {}.2.fq_tmp && mv {}.2.fq_tmp {}.2.fq"
+cat namelist | parallel -j $NUMProc --no-notice "gzip {}.2.fq"
+
+
+
+##after finish, get some stats for thesis: stats.sh
+#(do a barplot with the retained value using excel; select barplot, right click on plot to show the different values then select only retained then sort based on high to low and keep for thesis)
+
+##Go out of the current directory to move upwards to the ddRad directory
+
+cd ../
+
+echo raw_read_pairs after_hq_barcode after_demultiplex > demultiplex_report.txt
+	
+raw_read_pairs=$( cat Flib4_forward.1.fq.gz.HQbarcode.fq_report.txt | grep total | awk '{print $2}' )
+hq_barcode=$( cat Flib4_forward.1.fq.gz.HQbarcode.fq_report.txt | grep passed | awk '{print $2}' )
+demultiplexed=$(( $(head -20 furcata_lib4/process_radtags.log | grep Retained | tail -n +2 | head -1 | cut -f2 ) / 2 ))
+echo $raw_read_pairs $hq_barcode $demultiplexed >> demultiplex_report.txt
+
+
+
+
+## rename samples (don't forget to change the library number in the grep command)
+            
+#to just print the results to check
+
+grep Flib4 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+	echo furcata_lib4/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+
+echo furcata_lib4/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+done < fulist
+	
+#or to copy stuff from furcata_lib4 to demultiplexed_samples_all_furcata
+
+grep Flib4 species_samples_libs_barcodes_all.2023-09-01.txt > fulist
+
+
+while read line ; do
+	bc=$( echo $line | awk '{print $3}' )
+	name=$( echo $line | awk '{print $4}' )
+cp furcata_lib4/sample_${bc}.1.fq.gz demultiplexed_samples_all_furcata/${name}.F.fq.gz
+cp furcata_lib4/sample_${bc}.2.fq.gz demultiplexed_samples_all_furcata/${name}.R.fq.gz
+done < fulist
+
+
+
