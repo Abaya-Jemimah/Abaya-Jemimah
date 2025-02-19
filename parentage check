@@ -1,0 +1,2 @@
+python parentage_check.py --vcf ../furcata_fitering_final_step.recode.vcf --possible_parents furcata_parents.txt --progeny furcata_progeny.txt
+
